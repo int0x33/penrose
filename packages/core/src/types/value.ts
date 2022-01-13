@@ -1,3 +1,4 @@
+import { Shape } from "shapes/Shapes";
 import { VarAD } from "./ad";
 import { StyleError } from "./errors";
 import { Expr } from "./style";
@@ -5,17 +6,15 @@ import { Expr } from "./style";
 /**
  * The input parameters to computations/objectives/constraints in Style. It can be either an entire shape (`IGPI`) or a value (`IVal`).
  */
-export type ArgVal<T> = IGPI<T> | IVal<T>;
-
-export interface IGPI<T> {
-  tag: "GPI";
-  contents: GPI<T>;
-}
+export type ArgVal<T> = IGPI | IVal<T>;
 
 /**
  * A shape (Graphical Primitive Instance, aka GPI) in penrose has a type (_e.g._ `Circle`) and a set of properties (_e.g._ `center`). Each property this a value tagged with its type.
  */
-export type GPI<T> = [string, { [k: string]: Value<T> }];
+export interface IGPI {
+  tag: "GPI";
+  contents: Shape;
+}
 
 export interface IVal<T> {
   tag: "Val";

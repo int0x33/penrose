@@ -34,7 +34,7 @@ import { lastLocation } from "parser/ParserUtil";
 import styleGrammar from "parser/StyleParser";
 import rfdc from "rfdc";
 import { Canvas } from "shapes/Samplers";
-import { shapedefs } from "shapes/Shapes";
+import { shapedefs, ShapeType } from "shapes/Shapes";
 import { VarAD } from "types/ad";
 import { Identifier } from "types/ast";
 import { Either, Just, Left, MaybeVal, Right } from "types/common";

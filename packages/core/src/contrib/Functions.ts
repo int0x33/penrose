@@ -59,7 +59,8 @@ import {
   IVectorV,
 } from "types/value";
 import { randFloat, getStart, linePts } from "utils/Util";
-import { shapedefs } from "shapes/Shapes";
+import { Shape, shapedefs } from "shapes/Shapes";
+import { ILine, Line } from "shapes/Line";
 
 /**
  * Static dictionary of computation functions
@@ -101,7 +102,7 @@ export const compDict = {
    * Return the derivative of `varName`.
    * NOTE: This is a special system function. Don't change it!
    */
-  derivative: (optDebugInfo: OptDebugInfo, varName: string): IFloatV<any> => {
+  derivative: (optDebugInfo: OptDebugInfo, varName: string): IFloatV<VarAD> => {
     if (
       !optDebugInfo ||
       !("gradient" in optDebugInfo) ||
@@ -139,7 +140,7 @@ export const compDict = {
   derivativePreconditioned: (
     optDebugInfo: OptDebugInfo,
     varName: string
-  ): IFloatV<any> => {
+  ): IFloatV<VarAD> => {
     if (
       !optDebugInfo ||
       !("gradientPreconditioned" in optDebugInfo) ||
@@ -175,7 +176,7 @@ export const compDict = {
   /**
    * Return `i`th element of list `xs, assuming lists only hold floats.
    */
-  get: (xs: VarAD[], i: number): IFloatV<any> => {
+  get: (xs: VarAD[], i: number): IFloatV<VarAD> => {
     const res = xs[i];
     return {
       tag: "FloatV",
@@ -183,7 +184,7 @@ export const compDict = {
     };
   },
 
-  getVar: (xs: VarAD[], i: VarAD): IFloatV<any> => {
+  getVar: (xs: VarAD[], i: VarAD): IFloatV<VarAD> => {
     const res = xs[i.val];
     return {
       tag: "FloatV",
@@ -236,7 +237,7 @@ export const compDict = {
   /**
    * Return a paint of none (no paint)
    */
-  none: (): IColorV<any> => {
+  none: (): IColorV<VarAD> => {
     return {
       tag: "ColorV",
       contents: {
@@ -516,10 +517,10 @@ export const compDict = {
   },
 
   /**
-   * Return the length of the line or arrow shape `[type, props]`.
+   * Return the length of the line shape.
    */
-  lineLength: ([type, props]: [string, any]): IFloatV<VarAD> => {
-    const [p1, p2] = linePts(props);
+  lineLength: (line: ILine): IFloatV<VarAD> => {
+    const [p1, p2] = linePts(line);
     return {
       tag: "FloatV",
       contents: ops.vdist(p1, p2),
@@ -527,10 +528,10 @@ export const compDict = {
   },
 
   /**
-   * Return the length of the line or arrow shape `[type, props]`.
+   * Return the length of the line shape.
    */
-  len: ([type, props]: [string, any]): IFloatV<VarAD> => {
-    const [p1, p2] = linePts(props);
+  len: (line: ILine): IFloatV<VarAD> => {
+    const [p1, p2] = linePts(line);
     return {
       tag: "FloatV",
       contents: ops.vdist(p1, p2),
@@ -602,14 +603,14 @@ export const compDict = {
    * Return two points parallel to line `s1` using its normal line `s2`.
    */
   unitMark: (
-    [t1, s1]: [string, any],
-    [t2, s2]: [string, any],
+    line1: ILine,
+    line2: ILine,
     t: string,
     padding: VarAD,
     barSize: VarAD
   ): IPtListV<VarAD> => {
-    const [start1, end1] = linePts(s1);
-    const [start2, end2] = linePts(s2);
+    const [start1, end1] = linePts(line1);
+    const [start2, end2] = linePts(line2);
 
     const dir = ops.vnormalize(ops.vsub(end2, start2));
     const normalDir = ops.vneg(dir);
@@ -793,46 +794,37 @@ export const compDict = {
   /**
    * Return a point located at the midpoint of a line `s1` but offset by `padding` in its normal direction (for labeling).
    */
-  midpointOffset: ([t1, s1]: [string, any], padding: VarAD): ITupV<VarAD> => {
-    if (t1 === "Arrow" || t1 === "Line") {
-      const [start, end] = linePts(s1);
-      // TODO: Cache these operations in Style!
-      const normalDir = rot90v(ops.vnormalize(ops.vsub(end, start)));
-      const midpointLoc = ops.vmul(constOf(0.5), ops.vadd(start, end));
-      const midpointOffsetLoc = ops.vmove(midpointLoc, padding, normalDir);
-      return {
-        tag: "TupV",
-        contents: toPt(midpointOffsetLoc),
-      };
-    } else {
-      throw Error(`unsupported shape ${t1} in midpointOffset`);
-    }
+  midpointOffset: (line: ILine, padding: VarAD): ITupV<VarAD> => {
+    const [start, end] = linePts(line);
+    // TODO: Cache these operations in Style!
+    const normalDir = rot90v(ops.vnormalize(ops.vsub(end, start)));
+    const midpointLoc = ops.vmul(constOf(0.5), ops.vadd(start, end));
+    const midpointOffsetLoc = ops.vmove(midpointLoc, padding, normalDir);
+    return {
+      tag: "TupV",
+      contents: toPt(midpointOffsetLoc),
+    };
   },
   chevron: (
     // TODO reimplement with variable tick marks when #629 is merged
-    [t1, s1]: [string, any],
-    padding: VarAD,
-    ticks: VarAD
+    line: ILine,
+    padding: VarAD
   ): IPtListV<VarAD> => {
-    if (t1 === "Arrow" || t1 === "Line") {
-      // tickPlacement(padding, ticks);
-      const [start, end] = linePts(s1);
-      const dir = ops.vnormalize(ops.vsub(end, start)); // TODO make direction face "positive direction"
-      const startDir = ops.vrot(dir, constOf(135));
-      const endDir = ops.vrot(dir, constOf(225));
-      const center = ops.vmul(constOf(0.5), ops.vadd(start, end));
-      // if even, evenly divide tick marks about center. if odd, start in center and move outwards
-      return {
-        tag: "PtListV",
-        contents: [
-          ops.vmove(center, padding, startDir),
-          center,
-          ops.vmove(center, padding, endDir),
-        ].map(toPt),
-      };
-    } else {
-      throw Error(`unsupported shape ${t1} in chevron`);
-    }
+    // tickPlacement(padding, ticks);
+    const [start, end] = linePts(line);
+    const dir = ops.vnormalize(ops.vsub(end, start)); // TODO make direction face "positive direction"
+    const startDir = ops.vrot(dir, constOf(135));
+    const endDir = ops.vrot(dir, constOf(225));
+    const center = ops.vmul(constOf(0.5), ops.vadd(start, end));
+    // if even, evenly divide tick marks about center. if odd, start in center and move outwards
+    return {
+      tag: "PtListV",
+      contents: [
+        ops.vmove(center, padding, startDir),
+        center,
+        ops.vmove(center, padding, endDir),
+      ].map(toPt),
+    };
   },
   /**
    * Return a point located at `padding` of a line `s1` offset by `padding` in its normal direction (for making right angle markers).
@@ -905,28 +897,21 @@ export const compDict = {
    * return a path comprised of three points that describe a perpendicular mark at the angle where the segments intersect.
    */
   orientedSquare: (
-    [t1, s1]: [string, any],
-    [t2, s2]: [string, any],
+    s1: ILine,
+    s2: ILine,
     intersection: Pt2,
     len: VarAD
   ): IPathDataV<IVarAD> => {
-    if (
-      (t1 === "Arrow" || t1 === "Line") &&
-      (t2 === "Arrow" || t2 === "Line")
-    ) {
-      const [seg1, seg2]: any = [linePts(s1), linePts(s2)];
-      const [ptL, ptLR, ptR] = perpPathFlat(len, seg1, seg2);
-      const path = new PathBuilder();
-      return path
-        .moveTo(toPt(ptL))
-        .lineTo(toPt(ptLR))
-        .lineTo(toPt(ptR))
-        .lineTo(intersection)
-        .closePath()
-        .getPath();
-    } else {
-      throw Error("orientedSquare undefined for types ${t1}, ${t2}");
-    }
+    const [seg1, seg2] = [linePts(s1), linePts(s2)];
+    const [ptL, ptLR, ptR] = perpPathFlat(len, seg1, seg2);
+    const path = new PathBuilder();
+    return path
+      .moveTo(toPt(ptL))
+      .lineTo(toPt(ptLR))
+      .lineTo(toPt(ptR))
+      .lineTo(intersection)
+      .closePath()
+      .getPath();
   },
 
   /**
@@ -971,23 +956,14 @@ export const compDict = {
   /**
    * Given three lines `l1, l2, l3` that already form a triangle, return a path that describes the triangle (which can then be filled, etc.).
    */
-  triangle: (
-    [t1, l1]: any,
-    [t2, l2]: any,
-    [t3, l3]: any
-  ): IPathDataV<IVarAD> => {
-    if (t1 === "Line" && t2 === "Line" && t3 === "Line") {
-      const path = new PathBuilder();
-      return path
-        .moveTo(toPt(getStart(l1)))
-        .lineTo(toPt(getStart(l2)))
-        .lineTo(toPt(getStart(l3)))
-        .closePath()
-        .getPath();
-    } else {
-      console.error([t1, l1], [t2, l2], [t3, l3]);
-      throw Error("Triangle function expected three lines");
-    }
+  triangle: (l1: ILine, l2: ILine, l3: ILine): IPathDataV<IVarAD> => {
+    const path = new PathBuilder();
+    return path
+      .moveTo(toPt(getStart(l1)))
+      .lineTo(toPt(getStart(l2)))
+      .lineTo(toPt(getStart(l3)))
+      .closePath()
+      .getPath();
   },
 
   /**

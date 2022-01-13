@@ -5,33 +5,30 @@ import {
   findExprSafe,
   insertExpr,
   isPath,
-  valueAutodiffToNumber,
 } from "engine/EngineUtils";
 import { mapValues } from "lodash";
 // For deep-cloning the translation
 // Note: the translation should not have cycles! If it does, use the approach that `Optimizer` takes to `clone` (clearing the VarADs).
 import rfdc from "rfdc";
-import { VarAD, OptDebugInfo, IVarAD } from "types/ad";
-import { Identifier, SourceLoc } from "types/ast";
+import { Shape } from "shapes/Shapes";
+import { IVarAD, OptDebugInfo, VarAD } from "types/ad";
+import { Fn, FnDone, State, VaryMap } from "types/state";
+import { BinaryOp, Expr, IPropertyPath, Path, UnaryOp } from "types/style";
 import {
-  IFGPI,
-  Translation,
-  TagExpr,
-  IVal,
   ArgVal,
+  GPI,
+  IFGPI,
   IFloatV,
   IIntV,
   ILListV,
-  GPI,
+  IVal,
   IVectorV,
+  TagExpr,
+  Translation,
+  Value,
 } from "types/value";
-import { Shape, ShapeAD } from "types/shape";
-import { Value } from "types/value";
-import { State, Fn, VaryMap, FnDone } from "types/state";
-import { Path, Expr, IPropertyPath, BinaryOp, UnaryOp } from "types/style";
 import { floatVal, prettyPrintPath, zip2 } from "utils/Util";
 import { constOf, constOfIf, differentiable, numOf, ops } from "./Autodiff";
-
 import { add, div, mul, neg, sub } from "./AutodiffFunctions";
 
 const clone = rfdc({ proto: false, circles: false });
@@ -45,11 +42,6 @@ const log = consola.create({ level: LogLevel.Warn }).withScope("Evaluator");
  * - Analyze the comp graph first and mark all non-varying props or fields (including those that don't depend on varying vals) permanantly "Done".
  */
 
-// COMBAK: Import the dummy functions from Style -> EngineUtils
-const dummySourceLoc = (): SourceLoc => {
-  return { line: -1, col: -1 };
-};
-
 /**
  * Evaluate all shapes in the `State` by walking the `Translation` data structure, finding out all shape expressions (`FGPI` expressions computed by the Style compiler), and evaluating every property in each shape.
  *
@@ -57,7 +49,7 @@ const dummySourceLoc = (): SourceLoc => {
  *
  * NOTE: need to manage the random seed. In the backend we delibrately discard the new random seed within each of the opt session for consistent results.
  */
-export const evalShapes = (s: State): ShapeAD[] => {
+export const evalShapes = (s: State): Shape[] => {
   // Update the stale varyingMap from the translation
   // TODO: Evaluating the shapes for display is still done via interpretation on VarADs; not compiled
 
@@ -88,11 +80,8 @@ export const evalShapes = (s: State): ShapeAD[] => {
   log.info("shapePaths", s.shapePaths.map(prettyPrintPath));
 
   // Evaluate each of the shapes (note: the translation is mutated, not returned)
-  const [shapesEvaled, transEvaled]: [
-    ShapeAD[],
-    Translation
-  ] = shapeExprs.reduce(
-    ([currShapes, tr]: [ShapeAD[], Translation], e: IFGPI<VarAD>) =>
+  const [shapesEvaled]: [Shape[], Translation] = shapeExprs.reduce(
+    ([currShapes, tr]: [Shape[], Translation], e: IFGPI<VarAD>) =>
       evalShape(e, tr, s.varyingMap, currShapes, optDebugInfo),
     [[], trans]
   );
@@ -102,7 +91,7 @@ export const evalShapes = (s: State): ShapeAD[] => {
   }
 
   // Sort the shapes by ordering--note the null assertion
-  const sortedShapesEvaled: ShapeAD[] = s.shapeOrdering.map(
+  const sortedShapesEvaled: Shape[] = s.shapeOrdering.map(
     (name) =>
       shapesEvaled.find(({ properties }) => sameName(properties.name, name))!
   );
@@ -187,9 +176,9 @@ export const evalShape = (
   shapeExpr: IFGPI<VarAD>,
   trans: Translation,
   varyingVars: VaryMap,
-  shapes: ShapeAD[],
+  shapes: Shape[],
   optDebugInfo: OptDebugInfo
-): [ShapeAD[], Translation] => {
+): [Shape[], Translation] => {
   const [shapeType, propExprs] = shapeExpr.contents;
 
   // Make sure all props are evaluated to values instead of shapes
@@ -218,7 +207,7 @@ export const evalShape = (
     }
   );
 
-  const shape: ShapeAD = { shapeType, properties: props };
+  const shape: Shape = { shapeType: shapeType, ...props } as Shape; // COMBAK: precise shape types
 
   return [[...shapes, shape], trans];
 };
